@@ -1,0 +1,5 @@
+pyodbc
+requests
+pandas
+json
+glob
