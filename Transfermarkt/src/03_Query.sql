@@ -1,6 +1,6 @@
 select 
 distinct
-    -- need to exlucde ooposite ways
+    -- need to exlucde opposite way duplication
     case when Clubs1.Name < Clubs2.Name then Clubs1.Name else Clubs2.Name end as club1
     , case when Clubs1.Name < Clubs2.Name then Clubs2.Name else Clubs1.Name end as club2
     , Players.Name as Player
