@@ -1,0 +1,69 @@
+let nodes = 
+union
+(
+ external_table("players_csv")
+ | project nodeId = Column1, nodeLabel = Column2, label = "Player"
+),
+(
+ external_table("clubs_csv")
+ | project nodeId = Column1, nodeLabel = Column2, label = "Club"
+);
+let edges =
+ external_table('squad_csv_3')
+ | distinct Column1, Column3, Column4, Column5
+ | project playerId = Column1, clubId = Column3, year = Column4, joined = Column5
+;
+let geo = Clubs_Geo_csv
+ | where Country == "Germany"
+ | project club = trim(" ", Team), Latitude, Longitude
+;
+
+let graph = edges
+| make-graph playerId --> clubId with nodes on nodeId;
+
+let bronze = graph
+| graph-match (Player)-[squad]->(Club)
+where 
+ Player.label == "Player" 
+project
+ playerId = Player.nodeId,
+ player = Player.nodeLabel,
+ club = Club.nodeLabel,
+ year = squad.year,
+ joined = squad.joined
+;
+
+let silver = bronze
+| join kind=leftouter geo on club
+| partition hint.strategy=native by ['playerId']
+  (
+  order by ['year'] asc, ['joined'] asc
+  | where ["club"] != prev (["club"]) 
+  | project playerId, player, club, year, joined, Latitude, Longitude, distance = geo_distance_2points(["Longitude"], ["Latitude"], prev (["Longitude"]), prev (["Latitude"]) )
+)
+;
+
+let gold = silver
+| summarize ClubsCount = count(), ClubsDistinctCount= count_distinct(club), TotalDistance = sum(distance) by playerId, player 
+| project playerId, player, TotalDistance, ClubsDistinctCount, ClubsCount
+| sort by TotalDistance
+| extend onlyDifferentClubs = iff(ClubsCount==ClubsDistinctCount, 1, 0)
+| extend Rank=row_number()
+| join kind=leftouter silver on playerId
+| extend club, year, joined, Latitude, Longitude
+;
+
+let onlyDifferentClubs = gold
+| where onlyDifferentClubs == 1
+| project playerId, TotalDistance
+| distinct playerId, TotalDistance
+| sort by TotalDistance
+| extend RankUnique=row_number()
+;
+
+gold
+| project-away player1, playerId1
+| join kind=leftouter onlyDifferentClubs on playerId
+| project-away playerId1
+| sort by Rank asc, year asc, joined asc
+
